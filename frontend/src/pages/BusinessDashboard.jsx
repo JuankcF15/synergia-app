@@ -1,17 +1,13 @@
 import React, { useEffect, useState, useContext, useMemo } from "react";
 import {
   Box,
-  Card,
-  CardContent,
   Typography,
   Grid,
   Button,
   Fade,
   Zoom,
   Paper,
-  LinearProgress,
-  Chip,
-  Stack,
+  Divider,
 } from "@mui/material";
 import { Link } from "react-router-dom";
 import { Line, Bar } from "react-chartjs-2";
@@ -31,6 +27,12 @@ import Navbar from "../components/Navbar";
 import api from "../api";
 import { BusinessContext } from "../context/BusinessContext";
 import Loader from "../components/Loader";
+import SectionCard, {
+  EmptyChartState,
+} from "../components/dashboard/SectionCard";
+import ExecutiveSummaryCard from "../components/dashboard/ExecutiveSummaryCard";
+import InsightsPriorityCard from "../components/dashboard/InsightsPriorityCard";
+import PeriodFilter from "../components/dashboard/PeriodFilter";
 
 ChartJS.register(
   CategoryScale,
@@ -43,99 +45,6 @@ ChartJS.register(
   Legend,
 );
 
-function AnimatedNumber({
-  value,
-  duration = 1000,
-  suffix = "",
-  decimals = 0,
-  ...props
-}) {
-  const [display, setDisplay] = useState(0);
-
-  useEffect(() => {
-    let start = 0;
-    const numericValue = Number(value) || 0;
-
-    const step = (timestamp) => {
-      if (!start) start = timestamp;
-      const progress = Math.min((timestamp - start) / duration, 1);
-      setDisplay(progress * numericValue);
-      if (progress < 1) {
-        requestAnimationFrame(step);
-      } else {
-        setDisplay(numericValue);
-      }
-    };
-
-    requestAnimationFrame(step);
-  }, [value, duration]);
-
-  return (
-    <span {...props}>
-      {display.toFixed(decimals)}
-      {suffix}
-    </span>
-  );
-}
-
-function KpiCard({
-  label,
-  value,
-  color,
-  subtitle,
-  suffix = "",
-  decimals = 0,
-  animated = true,
-}) {
-  return (
-    <Card
-      sx={{
-        background: "#fff",
-        borderRadius: 3,
-        boxShadow: "0 4px 10px rgba(0, 0, 0, 0.1)",
-        height: "100%",
-      }}
-    >
-      <CardContent>
-        <Typography variant="h6" color="textSecondary" gutterBottom>
-          {label}
-        </Typography>
-        <Typography variant="h4" sx={{ color, fontWeight: 700, mb: 1 }}>
-          {animated ? (
-            <AnimatedNumber value={value} suffix={suffix} decimals={decimals} />
-          ) : (
-            `${Number(value || 0).toFixed(decimals)}${suffix}`
-          )}
-        </Typography>
-        {subtitle && (
-          <Typography variant="body2" sx={{ color: "#666" }}>
-            {subtitle}
-          </Typography>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function EmptyChartState({ message }) {
-  return (
-    <Box
-      sx={{
-        minHeight: 260,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        textAlign: "center",
-        px: 2,
-      }}
-    >
-      <Typography variant="body1" color="text.secondary">
-        {message}
-      </Typography>
-    </Box>
-  );
-}
-
 export default function BusinessDashboard() {
   const { businessData, loading } = useContext(BusinessContext);
   const [stats, setStats] = useState({
@@ -147,6 +56,7 @@ export default function BusinessDashboard() {
   const [recommendations, setRecommendations] = useState(null);
   const [showLoader, setShowLoader] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [selectedPeriod, setSelectedPeriod] = useState("6");
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -200,22 +110,41 @@ export default function BusinessDashboard() {
     return [...dimensions].sort((a, b) => a.promedio - b.promedio).slice(0, 3);
   }, [recommendations]);
 
-  const lineData = useMemo(() => {
-    if (!recommendations?.historico_labels?.length) return null;
+  const historicalSeries = useMemo(() => {
+    const labels = recommendations?.historico_labels || [];
+    const data = recommendations?.historico_data || [];
+
+    if (!labels.length || !data.length) return { labels: [], data: [] };
+
+    if (selectedPeriod === "all") {
+      return { labels, data };
+    }
+
+    const count = Number(selectedPeriod);
     return {
-      labels: recommendations.historico_labels,
+      labels: labels.slice(-count),
+      data: data.slice(-count),
+    };
+  }, [recommendations, selectedPeriod]);
+
+  const lineData = useMemo(() => {
+    if (!historicalSeries.labels.length) return null;
+    return {
+      labels: historicalSeries.labels,
       datasets: [
         {
           label: "Promedio General",
-          data: recommendations.historico_data,
-          fill: false,
-          borderColor: "#4A90E2",
-          backgroundColor: "#4A90E2",
-          tension: 0.3,
+          data: historicalSeries.data,
+          fill: true,
+          borderColor: "#3B82F6",
+          backgroundColor: "rgba(59, 130, 246, 0.1)",
+          tension: 0.4,
+          borderWidth: 2,
+          pointRadius: 4,
         },
       ],
     };
-  }, [recommendations]);
+  }, [historicalSeries]);
 
   const barData = useMemo(() => {
     if (!recommendations?.promedios_dimensiones?.length) return null;
@@ -229,19 +158,29 @@ export default function BusinessDashboard() {
           data: recommendations.promedios_dimensiones.map(
             (item) => item.promedio,
           ),
-          backgroundColor: [
-            "#4A90E2",
-            "#9013FE",
-            "#FF6F61",
-            "#50E3C2",
-            "#FFA500",
-            "#5C6BC0",
-          ],
-          borderRadius: 8,
+          backgroundColor: "#3B82F6",
+          borderRadius: 4,
+          barThickness: 32,
         },
       ],
     };
   }, [recommendations]);
+
+  const topLowBarData = useMemo(() => {
+    if (!topLowDimensions.length) return null;
+    return {
+      labels: topLowDimensions.map((item) => item.dimension),
+      datasets: [
+        {
+          label: "Dimensiones con menor puntaje",
+          data: topLowDimensions.map((item) => item.promedio),
+          backgroundColor: "#EF4444",
+          borderRadius: 4,
+          barThickness: 24,
+        },
+      ],
+    };
+  }, [topLowDimensions]);
 
   const executiveSummary = useMemo(() => {
     if (!recommendations) {
@@ -300,407 +239,388 @@ export default function BusinessDashboard() {
         }}
       >
         <Navbar businessImg={businessData?.img} />
-        <Box sx={{ p: 3, pt: 10, maxWidth: 1280, margin: "0 auto" }}>
+        <Box
+          sx={{ p: 3, pt: 10, maxWidth: 1280, margin: "0 auto", width: "100%" }}
+        >
           <Fade in timeout={700}>
-            <Card
+            <Box
               sx={{
-                mb: 3,
-                background: "#fff",
-                borderRadius: 3,
-                boxShadow: "0 4px 10px rgba(0, 0, 0, 0.1)",
-                padding: 3,
+                display: "flex",
+                flexDirection: { xs: "column", md: "row" },
+                justifyContent: "space-between",
+                alignItems: { xs: "flex-start", md: "center" },
+                mb: 4,
+                gap: 2,
               }}
             >
-              <CardContent>
-                <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  justifyContent="space-between"
-                  alignItems={{ xs: "flex-start", md: "center" }}
-                  spacing={2}
+              <Box>
+                <Typography
+                  variant="h4"
+                  sx={{
+                    fontWeight: 800,
+                    color: "#111827",
+                    letterSpacing: "-0.02em",
+                  }}
                 >
-                  <Box>
-                    <Typography
-                      variant="h4"
-                      gutterBottom
-                      sx={{ fontWeight: "bold", color: "#333" }}
-                    >
-                      Panel ejecutivo de clima laboral
-                    </Typography>
-                    <Typography
-                      variant="body1"
-                      sx={{ color: "#666", lineHeight: 1.6, maxWidth: 900 }}
-                    >
-                      Revisa el estado general de tu empresa, identifica las
-                      dimensiones más críticas y detecta oportunidades de mejora
-                      desde una sola vista.
-                    </Typography>
-                  </Box>
-                  <Chip
-                    label={`Empresa: ${businessData?.name || "Sin nombre"}`}
-                    sx={{
-                      background: "#EAF2FF",
-                      color: "#1F4E79",
-                      fontWeight: 600,
-                    }}
-                  />
-                </Stack>
-              </CardContent>
-            </Card>
+                  Panel Ejecutivo
+                </Typography>
+                <Typography variant="body1" sx={{ color: "#6B7280", mt: 0.5 }}>
+                  Visión general del clima laboral en{" "}
+                  {businessData?.name || "tu empresa"}
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", gap: 2 }}>
+                <Button
+                  variant="outlined"
+                  component={Link}
+                  to="/business/dashboard/employees"
+                  sx={{
+                    color: "#374151",
+                    borderColor: "#D1D5DB",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    "&:hover": {
+                      backgroundColor: "#F3F4F6",
+                      borderColor: "#D1D5DB",
+                    },
+                  }}
+                >
+                  Empleados
+                </Button>
+                <Button
+                  variant="contained"
+                  component={Link}
+                  to="/business/dashboard/reports"
+                  sx={{
+                    background: "#111827",
+                    color: "#fff",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    boxShadow: "none",
+                    "&:hover": { background: "#374151", boxShadow: "none" },
+                  }}
+                >
+                  Reporte Completo
+                </Button>
+              </Box>
+            </Box>
           </Fade>
 
-          <Grid container spacing={3} sx={{ mb: 1 }}>
-            {[
-              {
-                label: "Empleados Registrados",
-                color: "#50E3C2",
-                value: stats.total_empleados,
-                subtitle: "Base total de colaboradores cargados en el sistema",
-                decimals: 0,
-              },
-              {
-                label: "Empleados Participantes",
-                color: "#FF6F61",
-                value: stats.empleados_que_respondieron,
-                subtitle: "Personas que ya respondieron al menos una encuesta",
-                decimals: 0,
-              },
-              {
-                label: "Tasa de Participación",
-                color: "#4A90E2",
-                value: participationRate,
-                subtitle: "Nivel de participación sobre el total de empleados",
-                suffix: "%",
-                decimals: 1,
-              },
-              {
-                label: "Respuestas Totales",
-                color: "#9013FE",
-                value: stats.total_respuestas,
-                subtitle: "Cantidad total de respuestas registradas",
-                decimals: 0,
-              },
-              {
-                label: "Promedio General",
-                color: "#FFA500",
-                value: stats.promedio_general,
-                subtitle: "Promedio global del clima laboral en escala 1 a 5",
-                decimals: 2,
-              },
-            ].map((item, idx) => (
-              <Grid item xs={12} sm={6} md={4} lg={2.4} key={item.label}>
-                <Zoom in style={{ transitionDelay: `${200 + idx * 120}ms` }}>
-                  <Box sx={{ height: "100%" }}>
-                    <KpiCard {...item} />
-                  </Box>
-                </Zoom>
-              </Grid>
-            ))}
-
-            <Grid item xs={12} sm={6} md={4} lg={2.4}>
-              <Zoom in style={{ transitionDelay: "850ms" }}>
-                <Card
-                  sx={{
-                    background: "#fff",
-                    borderRadius: 3,
-                    boxShadow: "0 4px 10px rgba(0, 0, 0, 0.1)",
-                    height: "100%",
-                  }}
-                >
-                  <CardContent>
-                    <Typography variant="h6" color="textSecondary" gutterBottom>
-                      Dimensión Crítica
+          {/* CINTA DE ESTADÍSTICAS (Stats Strip) */}
+          <Fade in timeout={800}>
+            <Paper
+              elevation={0}
+              sx={{
+                mb: 4,
+                p: 0,
+                borderRadius: 3,
+                border: "1px solid #E5EAF2",
+                background: "#ffffff",
+                display: "flex",
+                flexDirection: { xs: "column", md: "row" },
+                overflow: "hidden",
+              }}
+            >
+              {[
+                {
+                  label: "Empleados Base",
+                  value: stats.total_empleados,
+                  decimals: 0,
+                },
+                {
+                  label: "Participantes",
+                  value: stats.empleados_que_respondieron,
+                  decimals: 0,
+                },
+                {
+                  label: "Participación",
+                  value: participationRate,
+                  suffix: "%",
+                  decimals: 1,
+                },
+                {
+                  label: "Respuestas",
+                  value: stats.total_respuestas,
+                  decimals: 0,
+                },
+                {
+                  label: "Clima Global",
+                  value: stats.promedio_general,
+                  decimals: 2,
+                  color:
+                    stats.promedio_general >= 3.5
+                      ? "#10B981"
+                      : stats.promedio_general >= 2.5
+                        ? "#F59E0B"
+                        : "#EF4444",
+                },
+              ].map((item, idx, arr) => (
+                <React.Fragment key={item.label}>
+                  <Box
+                    sx={{
+                      flex: 1,
+                      p: 3,
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "center",
+                      alignItems: { xs: "flex-start", md: "center" },
+                      textAlign: { xs: "left", md: "center" },
+                    }}
+                  >
+                    <Typography
+                      variant="subtitle2"
+                      sx={{
+                        color: "#64748B",
+                        fontWeight: 600,
+                        textTransform: "uppercase",
+                        fontSize: "0.75rem",
+                        mb: 1,
+                      }}
+                    >
+                      {item.label}
                     </Typography>
                     <Typography
-                      variant="h5"
-                      sx={{ color: "#D32F2F", fontWeight: 700, mb: 1 }}
+                      variant="h4"
+                      sx={{ color: item.color || "#0F172A", fontWeight: 800 }}
                     >
-                      {criticalDimension
-                        ? criticalDimension.dimension
-                        : "Sin datos"}
+                      {Number(item.value || 0).toFixed(item.decimals)}
+                      {item.suffix || ""}
                     </Typography>
-                    <Typography variant="body1" sx={{ color: "#666", mb: 1 }}>
-                      {criticalDimension
-                        ? `Puntaje: ${Number(criticalDimension.promedio).toFixed(2)}/5`
-                        : "Todavía no hay respuestas para evaluarla."}
-                    </Typography>
-                    <Chip
-                      size="small"
-                      label={
-                        criticalDimension &&
-                        Number(criticalDimension.promedio) < 2.5
-                          ? "Atención inmediata"
-                          : "Seguimiento"
-                      }
+                  </Box>
+                  {idx < arr.length - 1 && (
+                    <Divider
+                      orientation="vertical"
+                      flexItem
                       sx={{
-                        background:
-                          criticalDimension &&
-                          Number(criticalDimension.promedio) < 2.5
-                            ? "#FDECEA"
-                            : "#FFF4E5",
-                        color:
-                          criticalDimension &&
-                          Number(criticalDimension.promedio) < 2.5
-                            ? "#D32F2F"
-                            : "#B26A00",
-                        fontWeight: 600,
+                        display: { xs: "none", md: "block" },
+                        borderColor: "#E5EAF2",
                       }}
                     />
-                  </CardContent>
-                </Card>
-              </Zoom>
-            </Grid>
-          </Grid>
-
-          <Grid container spacing={3} sx={{ mt: 1 }}>
-            <Grid item xs={12} md={4}>
-              <Fade in timeout={850}>
-                <Paper
-                  sx={{
-                    p: 3,
-                    borderRadius: 3,
-                    boxShadow: "0 4px 10px rgba(0, 0, 0, 0.08)",
-                    height: "100%",
-                  }}
-                >
-                  <Typography variant="h6" fontWeight="bold" gutterBottom>
-                    Resumen ejecutivo
-                  </Typography>
-                  <Typography
-                    variant="body1"
-                    sx={{ color: "#555", lineHeight: 1.7, mb: 3 }}
-                  >
-                    {executiveSummary}
-                  </Typography>
-
-                  <Typography
-                    variant="subtitle1"
-                    fontWeight="bold"
-                    sx={{ mb: 1 }}
-                  >
-                    Participación actual
-                  </Typography>
-                  <LinearProgress
-                    variant="determinate"
-                    value={Math.min(participationRate, 100)}
-                    sx={{
-                      height: 10,
-                      borderRadius: 10,
-                      mb: 1,
-                      backgroundColor: "#E5EAF2",
-                      "& .MuiLinearProgress-bar": {
-                        backgroundColor:
-                          participationRate >= 70
-                            ? "#50E3C2"
-                            : participationRate >= 40
-                              ? "#FFA500"
-                              : "#FF6F61",
-                      },
-                    }}
-                  />
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ mb: 3 }}
-                  >
-                    {participationRate.toFixed(1)}% de empleados han
-                    participado.
-                  </Typography>
-
-                  <Typography
-                    variant="subtitle1"
-                    fontWeight="bold"
-                    sx={{ mb: 1.5 }}
-                  >
-                    Prioridades inmediatas
-                  </Typography>
-                  <Stack spacing={1.5}>
-                    {topLowDimensions.length > 0 ? (
-                      topLowDimensions.map((dimension, index) => (
-                        <Box
-                          key={dimension.dimension}
-                          sx={{
-                            p: 1.5,
-                            borderRadius: 2,
-                            background: index === 0 ? "#FDECEA" : "#F8F9FB",
-                            borderLeft:
-                              index === 0
-                                ? "4px solid #D32F2F"
-                                : "4px solid #4A90E2",
-                          }}
-                        >
-                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                            {index + 1}. {dimension.dimension}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Puntaje actual:{" "}
-                            {Number(dimension.promedio).toFixed(2)}/5
-                          </Typography>
-                        </Box>
-                      ))
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">
-                        Aún no hay suficientes respuestas para priorizar
-                        dimensiones.
-                      </Typography>
-                    )}
-                  </Stack>
-                </Paper>
-              </Fade>
-            </Grid>
-
-            <Grid item xs={12} md={8}>
-              <Grid container spacing={3}>
-                <Grid item xs={12}>
-                  <Fade in timeout={950}>
-                    <Paper
+                  )}
+                  {idx < arr.length - 1 && (
+                    <Divider
+                      orientation="horizontal"
+                      flexItem
                       sx={{
-                        p: 3,
-                        borderRadius: 3,
-                        boxShadow: "0 4px 10px rgba(0, 0, 0, 0.08)",
+                        display: { xs: "block", md: "none" },
+                        borderColor: "#E5EAF2",
                       }}
-                    >
-                      <Typography variant="h6" fontWeight="bold" gutterBottom>
-                        Evolución histórica del clima laboral
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ mb: 2 }}
+                    />
+                  )}
+                </React.Fragment>
+              ))}
+            </Paper>
+          </Fade>
+
+          {/* LAYOUT PRINCIPAL 8/4 */}
+          <Grid container spacing={3}>
+            {/* LADO IZQUIERDO (8) - Gráficas Principales */}
+            <Grid item xs={12} sm={7} md={7} lg={8}>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: { xs: "column", md: "row" },
+                  gap: 3,
+                }}
+              >
+                {/* Gráfica de Evolución */}
+                <Box sx={{ flex: 1 }}>
+                  <Fade in timeout={1000}>
+                    <Box>
+                      <SectionCard
+                        title="Evolución del Clima Laboral"
+                        subtitle="Tendencia del promedio general en el tiempo"
+                        action={
+                          <PeriodFilter
+                            value={selectedPeriod}
+                            onChange={setSelectedPeriod}
+                          />
+                        }
                       >
-                        Observa si el promedio general mejora o empeora con el
-                        paso del tiempo.
-                      </Typography>
-                      {lineData ? (
-                        <Box sx={{ minHeight: 280 }}>
-                          <Line
-                            data={lineData}
+                        {lineData ? (
+                          <Box sx={{ height: 350, mt: 2 }}>
+                            <Line
+                              data={lineData}
+                              options={{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                  legend: { display: false },
+                                  tooltip: {
+                                    backgroundColor: "#111827",
+                                    padding: 12,
+                                    titleFont: { size: 13 },
+                                    bodyFont: { size: 14, weight: "bold" },
+                                    displayColors: false,
+                                  },
+                                },
+                                scales: {
+                                  y: {
+                                    min: 0,
+                                    max: 5,
+                                    ticks: { stepSize: 1, color: "#64748B" },
+                                    grid: {
+                                      color: "#F1F5F9",
+                                      drawBorder: false,
+                                    },
+                                  },
+                                  x: {
+                                    ticks: { color: "#64748B" },
+                                    grid: { display: false, drawBorder: false },
+                                  },
+                                },
+                                interaction: {
+                                  intersect: false,
+                                  mode: "index",
+                                },
+                              }}
+                            />
+                          </Box>
+                        ) : (
+                          <EmptyChartState
+                            message="Todavía no hay histórico suficiente."
+                            minHeight={350}
+                          />
+                        )}
+                      </SectionCard>
+                    </Box>
+                  </Fade>
+                </Box>
+
+                {/* Gráfica de Desempeño */}
+                <Box sx={{ flex: 1 }}>
+                  <Fade in timeout={1100}>
+                    <Box>
+                      <SectionCard
+                        title="Desempeño por Dimensión"
+                        subtitle="Comparativa de todas las áreas evaluadas"
+                      >
+                        {barData ? (
+                          <Box sx={{ height: 350, mt: 2 }}>
+                            <Bar
+                              data={barData}
+                              options={{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                  legend: { display: false },
+                                  tooltip: {
+                                    backgroundColor: "#111827",
+                                    padding: 12,
+                                    displayColors: false,
+                                  },
+                                },
+                                scales: {
+                                  y: {
+                                    min: 0,
+                                    max: 5,
+                                    ticks: { stepSize: 1, color: "#64748B" },
+                                    grid: { color: "#F1F5F9" },
+                                    border: { display: false },
+                                  },
+                                  x: {
+                                    ticks: { color: "#64748B" },
+                                    grid: { display: false },
+                                    border: { display: false },
+                                  },
+                                },
+                              }}
+                            />
+                          </Box>
+                        ) : (
+                          <EmptyChartState
+                            message="Faltan datos para construir la comparativa."
+                            minHeight={350}
+                          />
+                        )}
+                      </SectionCard>
+                    </Box>
+                  </Fade>
+                </Box>
+              </Box>
+            </Grid>
+
+            {/* LADO DERECHO (4) - Lateral (Sidebar) de Insights */}
+            <Grid item xs={12} sm={5} md={5} lg={4}>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 3,
+                }}
+              >
+                <Fade in timeout={1200}>
+                  <Box>
+                    <ExecutiveSummaryCard
+                      summary={executiveSummary}
+                      participationRate={participationRate}
+                    />
+                  </Box>
+                </Fade>
+
+                <Fade in timeout={1300}>
+                  <Box>
+                    <InsightsPriorityCard
+                      criticalDimension={criticalDimension}
+                      topLowDimensions={topLowDimensions}
+                    />
+                  </Box>
+                </Fade>
+
+                <Fade in timeout={1400}>
+                  <Box>
+                    <SectionCard
+                      title="Top 3 Áreas Críticas"
+                      subtitle="Atender con prioridad"
+                    >
+                      {topLowBarData ? (
+                        <Box sx={{ height: 260, mt: 2 }}>
+                          <Bar
+                            data={topLowBarData}
                             options={{
+                              indexAxis: "y",
                               responsive: true,
                               maintainAspectRatio: false,
                               plugins: {
-                                legend: { display: true, position: "top" },
+                                legend: { display: false },
+                                tooltip: {
+                                  backgroundColor: "#111827",
+                                  padding: 12,
+                                  displayColors: false,
+                                },
                               },
                               scales: {
-                                y: { min: 0, max: 5, ticks: { stepSize: 1 } },
+                                x: {
+                                  min: 0,
+                                  max: 5,
+                                  ticks: { stepSize: 1, color: "#64748B" },
+                                  grid: { color: "#F1F5F9" },
+                                  border: { display: false },
+                                },
+                                y: {
+                                  ticks: {
+                                    color: "#64748B",
+                                    font: { weight: "600" },
+                                  },
+                                  grid: { display: false },
+                                  border: { display: false },
+                                },
                               },
                             }}
                           />
                         </Box>
                       ) : (
-                        <EmptyChartState message="Todavía no hay histórico suficiente para mostrar esta gráfica." />
+                        <EmptyChartState
+                          message="No hay suficientes datos."
+                          minHeight={260}
+                        />
                       )}
-                    </Paper>
-                  </Fade>
-                </Grid>
-
-                <Grid item xs={12}>
-                  <Fade in timeout={1050}>
-                    <Paper
-                      sx={{
-                        p: 3,
-                        borderRadius: 3,
-                        boxShadow: "0 4px 10px rgba(0, 0, 0, 0.08)",
-                      }}
-                    >
-                      <Typography variant="h6" fontWeight="bold" gutterBottom>
-                        Comparación de dimensiones
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ mb: 2 }}
-                      >
-                        Identifica rápidamente qué dimensiones tienen mejor y
-                        peor desempeño dentro de tu empresa.
-                      </Typography>
-                      {barData ? (
-                        <Box sx={{ minHeight: 320 }}>
-                          <Bar
-                            data={barData}
-                            options={{
-                              responsive: true,
-                              maintainAspectRatio: false,
-                              plugins: { legend: { display: false } },
-                              scales: {
-                                y: { min: 0, max: 5, ticks: { stepSize: 1 } },
-                              },
-                            }}
-                          />
-                        </Box>
-                      ) : (
-                        <EmptyChartState message="Todavía no hay resultados por dimensión para construir esta comparación." />
-                      )}
-                    </Paper>
-                  </Fade>
-                </Grid>
-              </Grid>
+                    </SectionCard>
+                  </Box>
+                </Fade>
+              </Box>
             </Grid>
           </Grid>
-
-          <Box sx={{ mt: 4 }}>
-            <Typography variant="h5" gutterBottom>
-              Acciones Rápidas
-            </Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6} md={4}>
-                <Button
-                  variant="contained"
-                  fullWidth
-                  sx={{
-                    background: "#4A90E2",
-                    color: "#fff",
-                    transition: "transform 0.2s",
-                    "&:hover": {
-                      background: "#357ABD",
-                      transform: "scale(1.04)",
-                    },
-                  }}
-                  component={Link}
-                  to="/business/dashboard/employees"
-                >
-                  Gestionar Empleados
-                </Button>
-              </Grid>
-              <Grid item xs={12} sm={6} md={4}>
-                <Button
-                  variant="contained"
-                  fullWidth
-                  sx={{
-                    background: "#9013FE",
-                    color: "#fff",
-                    transition: "transform 0.2s",
-                    "&:hover": {
-                      background: "#6C0EB8",
-                      transform: "scale(1.04)",
-                    },
-                  }}
-                  component={Link}
-                  to="/business/dashboard/reports"
-                >
-                  Ver Reportes Detallados
-                </Button>
-              </Grid>
-              <Grid item xs={12} sm={6} md={4}>
-                <Button
-                  variant="contained"
-                  fullWidth
-                  sx={{
-                    background: "#FF6F61",
-                    color: "#fff",
-                    transition: "transform 0.2s",
-                    "&:hover": {
-                      background: "#E0554A",
-                      transform: "scale(1.04)",
-                    },
-                  }}
-                  component={Link}
-                  to="/business/dashboard/settings"
-                >
-                  Configuración
-                </Button>
-              </Grid>
-            </Grid>
-          </Box>
         </Box>
       </Box>
     </Box>
