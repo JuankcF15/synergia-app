@@ -6,6 +6,7 @@ from .views import (
     ExportSurveyExcelView,
     GenerateAccessCodeView,
     ListAccessCodesByEmployeeView,
+    SurveyAISummaryView,
     SurveyAnalysisView,
     SurveyRecommendationsView,
     SurveyResponseCreateAPIView,
@@ -34,6 +35,7 @@ urlpatterns = [
     ),
     path("export/", ExportSurveyDataView.as_view(), name="export-survey-data"),
     path("export/excel/", ExportSurveyExcelView.as_view(), name="export-survey-excel"),
+    path("ai-summary/", SurveyAISummaryView.as_view(), name="survey-ai-summary"),
     path("analysis/", SurveyAnalysisView.as_view(), name="analyze-survey-data"),
     path(
         "recommendations/",

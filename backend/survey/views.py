@@ -1,4 +1,5 @@
 import csv
+import json
 import os
 import random
 import string
@@ -7,6 +8,8 @@ from collections import defaultdict
 from io import BytesIO
 
 import pandas as pd
+import requests
+from django.conf import settings as django_settings
 from django.core.mail import send_mail
 from django.db.models import Avg, StdDev
 from django.http import FileResponse, HttpResponse
@@ -704,6 +707,298 @@ class ExportSurveyExcelView(APIView):
         )
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
+
+
+def _build_ai_summary_context(report_context):
+    question_rows = []
+    for question in report_context["questions"]:
+        values = report_context["answers_by_question"].get(question.id, [])
+        promedio = round(sum(values) / len(values), 2) if values else 0
+        question_rows.append(
+            {
+                "dimension": question.dimension.name,
+                "order": question.order,
+                "text": question.text,
+                "average": promedio,
+                "responses": len(values),
+            }
+        )
+
+    low_questions = sorted(question_rows, key=lambda item: item["average"])[:5]
+    high_questions = sorted(
+        question_rows, key=lambda item: item["average"], reverse=True
+    )[:5]
+    low_dimensions = [
+        {"dimension": item["dimension"].name, "average": item["average"]}
+        for item in sorted(
+            report_context["dimensions"], key=lambda item: item["average"]
+        )[:3]
+    ]
+    high_dimensions = [
+        {"dimension": item["dimension"].name, "average": item["average"]}
+        for item in sorted(
+            report_context["dimensions"], key=lambda item: item["average"], reverse=True
+        )[:3]
+    ]
+
+    historical = [
+        {
+            "period": f"{item['response__submitted_at__month']:02d}/{item['response__submitted_at__year']}",
+            "average": round(item["promedio"] or 0, 2),
+        }
+        for item in report_context["historical"]
+    ]
+
+    return {
+        "empresa": report_context["business"].name,
+        "fecha_generacion": report_context["generated_at"].strftime("%d/%m/%Y %H:%M"),
+        "total_empleados": report_context["total_empleados"],
+        "empleados_participantes": report_context["empleados_que_respondieron"],
+        "tasa_participacion": report_context["tasa_participacion"],
+        "total_respuestas": report_context["total_respuestas"],
+        "promedio_general": report_context["promedio_general"],
+        "dimensiones_mas_bajas": low_dimensions,
+        "dimensiones_mas_altas": high_dimensions,
+        "preguntas_mas_bajas": low_questions,
+        "preguntas_mas_altas": high_questions,
+        "historico": historical,
+    }
+
+
+def _extract_json_from_gemini_text(raw_text):
+    raw_text = raw_text.strip()
+    if raw_text.startswith("```"):
+        raw_text = raw_text.strip("`")
+        if raw_text.startswith("json"):
+            raw_text = raw_text[4:].strip()
+    start = raw_text.find("{")
+    end = raw_text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        raw_text = raw_text[start : end + 1]
+    return json.loads(raw_text)
+
+
+def _priority_from_average(avg):
+    if avg < 2.5:
+        return "Alta"
+    if avg < 3.5:
+        return "Media"
+    return "Baja"
+
+
+def _build_local_ai_summary(ai_context):
+    low_dimensions = ai_context.get("dimensiones_mas_bajas", [])
+    high_dimensions = ai_context.get("dimensiones_mas_altas", [])
+    low_questions = ai_context.get("preguntas_mas_bajas", [])
+    overall = ai_context.get("promedio_general", 0)
+    participation = ai_context.get("tasa_participacion", 0)
+
+    if overall < 2.5:
+        diagnostico = "El clima laboral general presenta señales de alerta y requiere intervención prioritaria."
+    elif overall < 3.5:
+        diagnostico = "El clima laboral es aceptable, pero existen áreas claras de mejora que conviene atender a corto plazo."
+    else:
+        diagnostico = "El clima laboral es favorable en términos generales, aunque aún hay oportunidades de fortalecimiento puntual."
+
+    fortalezas = [
+        f"La dimensión {item['dimension']} muestra un desempeño relativamente fuerte con promedio {item['average']}."
+        for item in high_dimensions[:3]
+        if item.get("average", 0) > 0
+    ]
+
+    areas_criticas = [
+        f"La dimensión {item['dimension']} requiere atención porque su promedio es {item['average']}."
+        for item in low_dimensions[:3]
+        if item.get("average", 0) > 0
+    ]
+
+    preguntas_clave = [
+        {
+            "dimension": item["dimension"],
+            "pregunta": item["text"],
+            "promedio": item["average"],
+            "interpretacion": (
+                "Este ítem evidencia una percepción débil y puede estar afectando negativamente la experiencia laboral del equipo."
+                if item.get("average", 0) < 2.5
+                else "Este ítem sugiere una percepción intermedia que aún puede fortalecerse con acciones específicas."
+            ),
+        }
+        for item in low_questions[:4]
+    ]
+
+    recomendaciones = []
+    for item in low_dimensions[:3]:
+        recomendaciones.append(
+            {
+                "titulo": f"Mejorar {item['dimension']}",
+                "detalle": f"Diseñar acciones concretas para reforzar la dimensión {item['dimension']}, revisar prácticas actuales y hacer seguimiento mensual de avances.",
+                "prioridad": _priority_from_average(item.get("average", 0)),
+            }
+        )
+
+    if participation < 70:
+        recomendaciones.append(
+            {
+                "titulo": "Incrementar participación",
+                "detalle": "Reforzar la comunicación interna y facilitar el acceso a la encuesta para lograr una muestra más representativa.",
+                "prioridad": "Media",
+            }
+        )
+
+    plan_accion = [
+        {
+            "plazo": "Corto plazo",
+            "accion": "Socializar resultados con líderes y priorizar las dimensiones más bajas.",
+            "objetivo": "Alinear decisiones rápidas basadas en evidencia.",
+        },
+        {
+            "plazo": "Mediano plazo",
+            "accion": "Implementar intervenciones específicas sobre reconocimiento, comunicación o liderazgo según la dimensión crítica detectada.",
+            "objetivo": "Mejorar la percepción de los equipos en los factores con peor desempeño.",
+        },
+        {
+            "plazo": "Largo plazo",
+            "accion": "Comparar nuevas mediciones con esta línea base y consolidar una estrategia de mejora continua.",
+            "objetivo": "Sostener mejoras reales en el clima laboral.",
+        },
+    ]
+
+    riesgos = []
+    if participation < 50:
+        riesgos.append(
+            "La baja participación puede limitar la representatividad del diagnóstico."
+        )
+    if low_dimensions and low_dimensions[0].get("average", 0) < 2.5:
+        riesgos.append(
+            f"La dimensión {low_dimensions[0]['dimension']} presenta un nivel crítico que podría impactar el compromiso, la motivación o la convivencia laboral."
+        )
+    if not riesgos:
+        riesgos.append(
+            "No se detectan riesgos severos inmediatos, pero conviene mantener seguimiento periódico."
+        )
+
+    return {
+        "resumen_ejecutivo": f"Se analizó la información agregada de la empresa {ai_context.get('empresa')}. El promedio general es {overall} sobre 5 y la tasa de participación alcanza {participation}%. Las principales oportunidades de mejora se concentran en las dimensiones con menor puntaje y en los ítems críticos detectados.",
+        "diagnostico_general": diagnostico,
+        "fortalezas": fortalezas,
+        "areas_criticas": areas_criticas,
+        "preguntas_clave": preguntas_clave,
+        "recomendaciones": recomendaciones,
+        "plan_accion": plan_accion,
+        "riesgos": riesgos,
+        "conclusion": "El análisis sugiere que la organización cuenta con una base útil para actuar de forma focalizada. La prioridad debe centrarse en las dimensiones más débiles, acompañada de seguimiento periódico y comunicación clara con los equipos.",
+        "fuente": "fallback-local",
+        "modelo": "reglas-internas",
+        "warning": "Gemini no pudo responder por límite de cuota o disponibilidad. Se generó un resumen local automático como respaldo.",
+    }
+
+
+class SurveyAISummaryView(APIView):
+    """Generate an AI-powered survey summary using Gemini."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        api_key = getattr(django_settings, "GEMINI_API_KEY", "")
+        if not api_key:
+            return Response(
+                {"error": "No se ha configurado GEMINI_API_KEY en settings.py."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        business = request.user.business
+        report_context = _build_excel_report_context(business)
+        if not report_context:
+            return Response(
+                {
+                    "error": "No hay respuestas suficientes para generar el resumen inteligente."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ai_context = _build_ai_summary_context(report_context)
+        model = getattr(django_settings, "GEMINI_MODEL", "gemini-2.0-flash")
+        prompt = f"""
+Eres un analista senior de clima laboral. Debes analizar los datos agregados de una empresa y devolver exclusivamente un JSON válido, sin markdown, sin comentarios y sin texto adicional.
+
+Responde en español profesional, con lenguaje claro y accionable.
+
+Debes devolver exactamente esta estructura JSON:
+{{
+  "resumen_ejecutivo": "string",
+  "diagnostico_general": "string",
+  "fortalezas": ["string"],
+  "areas_criticas": ["string"],
+  "preguntas_clave": [
+    {{
+      "dimension": "string",
+      "pregunta": "string",
+      "promedio": number,
+      "interpretacion": "string"
+    }}
+  ],
+  "recomendaciones": [
+    {{
+      "titulo": "string",
+      "detalle": "string",
+      "prioridad": "Alta|Media|Baja"
+    }}
+  ],
+  "plan_accion": [
+    {{
+      "plazo": "Corto plazo|Mediano plazo|Largo plazo",
+      "accion": "string",
+      "objetivo": "string"
+    }}
+  ],
+  "riesgos": ["string"],
+  "conclusion": "string"
+}}
+
+Usa solo la información disponible. No inventes dimensiones, preguntas, métricas ni datos.
+
+Datos agregados:
+{json.dumps(ai_context, ensure_ascii=False, indent=2)}
+"""
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.4,
+                "responseMimeType": "application/json",
+            },
+        }
+
+        try:
+            gemini_response = requests.post(url, json=payload, timeout=40)
+            gemini_response.raise_for_status()
+            data = gemini_response.json()
+            raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+            parsed = _extract_json_from_gemini_text(raw_text)
+            parsed["fuente"] = "gemini"
+            parsed["modelo"] = model
+            return Response(parsed)
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code == 429:
+                fallback_summary = _build_local_ai_summary(ai_context)
+                return Response(fallback_summary)
+            return Response(
+                {"error": f"No fue posible comunicarse con Gemini: {str(exc)}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.RequestException as exc:
+            return Response(
+                {"error": f"No fue posible comunicarse con Gemini: {str(exc)}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except (KeyError, IndexError, json.JSONDecodeError):
+            fallback_summary = _build_local_ai_summary(ai_context)
+            fallback_summary["warning"] = (
+                "Gemini respondió, pero su salida no pudo procesarse. Se generó un resumen local automático como respaldo."
+            )
+            return Response(fallback_summary)
 
 
 class SurveyAnalysisView(APIView):

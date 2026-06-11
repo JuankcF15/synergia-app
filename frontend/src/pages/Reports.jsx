@@ -13,6 +13,8 @@ import {
   Fade,
   Zoom,
   Stack,
+  CircularProgress,
+  Divider,
 } from "@mui/material";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
@@ -33,6 +35,7 @@ import { BusinessContext } from "../context/BusinessContext";
 import api from "../api";
 
 import InsightsIcon from "@mui/icons-material/Insights";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import Loader from "../components/Loader";
 
 ChartJS.register(
@@ -52,6 +55,8 @@ export default function Reports() {
   const [filter, setFilter] = useState("personalizadas");
   const [analysisData, setAnalysisData] = useState([]);
   const [recommendations, setRecommendations] = useState(null);
+  const [aiSummary, setAiSummary] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: "",
@@ -267,6 +272,32 @@ export default function Reports() {
     }
   };
 
+  const handleGenerateAiSummary = async () => {
+    try {
+      setAiLoading(true);
+      const response = await api.get("api/survey/ai-summary/");
+      setAiSummary(response.data);
+      setSnackbar({
+        open: true,
+        message: response.data?.warning
+          ? "Se generó un resumen local de respaldo"
+          : "Resumen inteligente generado correctamente",
+        severity: response.data?.warning ? "warning" : "success",
+      });
+    } catch (error) {
+      const message =
+        error?.response?.data?.error ||
+        "Error al generar el resumen inteligente";
+      setSnackbar({
+        open: true,
+        message,
+        severity: "error",
+      });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   return (
     <Box sx={{ display: "flex", height: "100vh" }}>
       <Sidebar />
@@ -372,6 +403,429 @@ export default function Reports() {
                         Exportar a Excel
                       </Button>
                     </Stack>
+                  </Paper>
+                </Fade>
+
+                {/* Resumen Inteligente Gemini */}
+                <Fade in timeout={1000}>
+                  <Paper
+                    sx={{
+                      p: 3,
+                      mb: 4,
+                      boxShadow: "0 4px 10px rgba(0, 0, 0, 0.1)",
+                      background:
+                        "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
+                    }}
+                  >
+                    <Stack
+                      direction={{ xs: "column", md: "row" }}
+                      justifyContent="space-between"
+                      alignItems={{ xs: "flex-start", md: "center" }}
+                      spacing={2}
+                    >
+                      <Box>
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          alignItems="center"
+                          sx={{ mb: 1 }}
+                        >
+                          <AutoAwesomeIcon sx={{ color: "#7C3AED" }} />
+                          <Typography variant="h5" fontWeight="bold">
+                            Resumen inteligente con Gemini
+                          </Typography>
+                        </Stack>
+                        <Typography variant="body1" color="text.secondary">
+                          Genera un análisis detallado en lenguaje natural con
+                          fortalezas, áreas críticas, preguntas clave,
+                          recomendaciones y plan de acción basado en los
+                          resultados de la encuesta.
+                        </Typography>
+                      </Box>
+                      <Button
+                        variant="contained"
+                        onClick={handleGenerateAiSummary}
+                        disabled={aiLoading}
+                        sx={{
+                          background: "#7C3AED",
+                          color: "#fff",
+                          minWidth: 240,
+                          "&:hover": { background: "#6D28D9" },
+                        }}
+                        startIcon={
+                          aiLoading ? (
+                            <CircularProgress size={18} color="inherit" />
+                          ) : (
+                            <AutoAwesomeIcon />
+                          )
+                        }
+                      >
+                        {aiLoading
+                          ? "Generando análisis..."
+                          : "Generar resumen inteligente"}
+                      </Button>
+                    </Stack>
+
+                    {aiSummary && (
+                      <Box sx={{ mt: 3 }}>
+                        <Divider sx={{ mb: 3 }} />
+
+                        {aiSummary.warning && (
+                          <Alert severity="warning" sx={{ mb: 2.5 }}>
+                            {aiSummary.warning}
+                          </Alert>
+                        )}
+
+                        <Paper
+                          sx={{
+                            p: 2.5,
+                            mb: 2.5,
+                            background: "#F8FAFC",
+                            borderLeft: "4px solid #7C3AED",
+                          }}
+                        >
+                          <Typography
+                            variant="h6"
+                            fontWeight="bold"
+                            gutterBottom
+                          >
+                            Resumen ejecutivo
+                          </Typography>
+                          <Typography variant="body1" sx={{ mb: 2 }}>
+                            {aiSummary.resumen_ejecutivo}
+                          </Typography>
+                          <Typography
+                            variant="subtitle1"
+                            fontWeight="bold"
+                            gutterBottom
+                          >
+                            Diagnóstico general
+                          </Typography>
+                          <Typography variant="body1">
+                            {aiSummary.diagnostico_general}
+                          </Typography>
+                        </Paper>
+
+                        <Box
+                          sx={{
+                            display: "grid",
+                            gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+                            gap: 2.5,
+                            mb: 2.5,
+                          }}
+                        >
+                          <Paper
+                            sx={{
+                              p: 2.5,
+                              background: "#F0FDF4",
+                              borderLeft: "4px solid #16A34A",
+                            }}
+                          >
+                            <Typography
+                              variant="h6"
+                              fontWeight="bold"
+                              gutterBottom
+                            >
+                              Fortalezas
+                            </Typography>
+                            {(aiSummary.fortalezas || []).length > 0 ? (
+                              <Box component="ul" sx={{ pl: 2, mb: 0 }}>
+                                {aiSummary.fortalezas.map((item, index) => (
+                                  <li key={`strength-${index}`}>
+                                    <Typography variant="body2">
+                                      {item}
+                                    </Typography>
+                                  </li>
+                                ))}
+                              </Box>
+                            ) : (
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
+                              >
+                                Sin fortalezas destacadas.
+                              </Typography>
+                            )}
+                          </Paper>
+
+                          <Paper
+                            sx={{
+                              p: 2.5,
+                              background: "#FEF2F2",
+                              borderLeft: "4px solid #DC2626",
+                            }}
+                          >
+                            <Typography
+                              variant="h6"
+                              fontWeight="bold"
+                              gutterBottom
+                            >
+                              Áreas críticas
+                            </Typography>
+                            {(aiSummary.areas_criticas || []).length > 0 ? (
+                              <Box component="ul" sx={{ pl: 2, mb: 0 }}>
+                                {aiSummary.areas_criticas.map((item, index) => (
+                                  <li key={`critical-${index}`}>
+                                    <Typography variant="body2">
+                                      {item}
+                                    </Typography>
+                                  </li>
+                                ))}
+                              </Box>
+                            ) : (
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
+                              >
+                                No se identificaron áreas críticas.
+                              </Typography>
+                            )}
+                          </Paper>
+                        </Box>
+
+                        <Paper
+                          sx={{
+                            p: 2.5,
+                            mb: 2.5,
+                            background: "#FFF",
+                            border: "1px solid #E5E7EB",
+                          }}
+                        >
+                          <Typography
+                            variant="h6"
+                            fontWeight="bold"
+                            gutterBottom
+                          >
+                            Preguntas clave
+                          </Typography>
+                          <Stack spacing={2}>
+                            {(aiSummary.preguntas_clave || []).map(
+                              (item, index) => (
+                                <Box
+                                  key={`question-${index}`}
+                                  sx={{
+                                    p: 2,
+                                    borderRadius: 2,
+                                    background: "#F8FAFC",
+                                  }}
+                                >
+                                  <Typography
+                                    variant="subtitle2"
+                                    sx={{
+                                      color: "#4A90E2",
+                                      fontWeight: "bold",
+                                      mb: 0.5,
+                                    }}
+                                  >
+                                    {item.dimension} · Promedio {item.promedio}
+                                  </Typography>
+                                  <Typography variant="body1" sx={{ mb: 0.75 }}>
+                                    {item.pregunta}
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    color="text.secondary"
+                                  >
+                                    {item.interpretacion}
+                                  </Typography>
+                                </Box>
+                              ),
+                            )}
+                          </Stack>
+                        </Paper>
+
+                        <Box
+                          sx={{
+                            display: "grid",
+                            gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+                            gap: 2.5,
+                            mb: 2.5,
+                          }}
+                        >
+                          <Paper
+                            sx={{
+                              p: 2.5,
+                              background: "#FFF",
+                              border: "1px solid #E5E7EB",
+                            }}
+                          >
+                            <Typography
+                              variant="h6"
+                              fontWeight="bold"
+                              gutterBottom
+                            >
+                              Recomendaciones
+                            </Typography>
+                            <Stack spacing={2}>
+                              {(aiSummary.recomendaciones || []).map(
+                                (item, index) => (
+                                  <Box
+                                    key={`recommendation-${index}`}
+                                    sx={{
+                                      p: 2,
+                                      borderRadius: 2,
+                                      background: "#F8FAFC",
+                                    }}
+                                  >
+                                    <Stack
+                                      direction="row"
+                                      justifyContent="space-between"
+                                      alignItems="center"
+                                      sx={{ mb: 0.75 }}
+                                    >
+                                      <Typography
+                                        variant="subtitle1"
+                                        fontWeight="bold"
+                                      >
+                                        {item.titulo}
+                                      </Typography>
+                                      <Typography
+                                        variant="caption"
+                                        sx={{
+                                          background:
+                                            item.prioridad === "Alta"
+                                              ? "#FEE2E2"
+                                              : item.prioridad === "Media"
+                                                ? "#FEF3C7"
+                                                : "#DBEAFE",
+                                          color: "#111827",
+                                          px: 1.2,
+                                          py: 0.4,
+                                          borderRadius: 3,
+                                          fontWeight: "bold",
+                                        }}
+                                      >
+                                        {item.prioridad}
+                                      </Typography>
+                                    </Stack>
+                                    <Typography
+                                      variant="body2"
+                                      color="text.secondary"
+                                    >
+                                      {item.detalle}
+                                    </Typography>
+                                  </Box>
+                                ),
+                              )}
+                            </Stack>
+                          </Paper>
+
+                          <Paper
+                            sx={{
+                              p: 2.5,
+                              background: "#FFF",
+                              border: "1px solid #E5E7EB",
+                            }}
+                          >
+                            <Typography
+                              variant="h6"
+                              fontWeight="bold"
+                              gutterBottom
+                            >
+                              Plan de acción
+                            </Typography>
+                            <Stack spacing={2}>
+                              {(aiSummary.plan_accion || []).map(
+                                (item, index) => (
+                                  <Box
+                                    key={`plan-${index}`}
+                                    sx={{
+                                      p: 2,
+                                      borderRadius: 2,
+                                      background: "#F8FAFC",
+                                    }}
+                                  >
+                                    <Typography
+                                      variant="subtitle2"
+                                      sx={{
+                                        color: "#7C3AED",
+                                        fontWeight: "bold",
+                                        mb: 0.5,
+                                      }}
+                                    >
+                                      {item.plazo}
+                                    </Typography>
+                                    <Typography
+                                      variant="body1"
+                                      sx={{ mb: 0.5 }}
+                                    >
+                                      {item.accion}
+                                    </Typography>
+                                    <Typography
+                                      variant="body2"
+                                      color="text.secondary"
+                                    >
+                                      {item.objetivo}
+                                    </Typography>
+                                  </Box>
+                                ),
+                              )}
+                            </Stack>
+                          </Paper>
+                        </Box>
+
+                        <Paper
+                          sx={{
+                            p: 2.5,
+                            mb: 2.5,
+                            background: "#FFF7ED",
+                            borderLeft: "4px solid #EA580C",
+                          }}
+                        >
+                          <Typography
+                            variant="h6"
+                            fontWeight="bold"
+                            gutterBottom
+                          >
+                            Riesgos detectados
+                          </Typography>
+                          {(aiSummary.riesgos || []).length > 0 ? (
+                            <Box component="ul" sx={{ pl: 2, mb: 0 }}>
+                              {aiSummary.riesgos.map((item, index) => (
+                                <li key={`risk-${index}`}>
+                                  <Typography variant="body2">
+                                    {item}
+                                  </Typography>
+                                </li>
+                              ))}
+                            </Box>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              No se reportaron riesgos destacados.
+                            </Typography>
+                          )}
+                        </Paper>
+
+                        <Paper
+                          sx={{
+                            p: 2.5,
+                            background: "#EEF2FF",
+                            borderLeft: "4px solid #4F46E5",
+                          }}
+                        >
+                          <Typography
+                            variant="h6"
+                            fontWeight="bold"
+                            gutterBottom
+                          >
+                            Conclusión
+                          </Typography>
+                          <Typography variant="body1">
+                            {aiSummary.conclusion}
+                          </Typography>
+                          {(aiSummary.modelo || aiSummary.fuente) && (
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ display: "block", mt: 1.5 }}
+                            >
+                              Generado con {aiSummary.fuente} · modelo{" "}
+                              {aiSummary.modelo}
+                            </Typography>
+                          )}
+                        </Paper>
+                      </Box>
+                    )}
                   </Paper>
                 </Fade>
 
