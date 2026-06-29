@@ -33,7 +33,7 @@ function RegisterAndLogout() {
 
 export default function AppRoutes() {
     return (
-        <BrowserRouter>
+        <BrowserRouter basename="/synergia">
             <Routes>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/business/login" element={<BusinessLogin />} />
