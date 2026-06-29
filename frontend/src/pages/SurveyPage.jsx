@@ -193,7 +193,7 @@ export default function EncuestaEmpleado() {
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button variant="contained" onClick={() => window.location.href = '/'}>
+          <Button variant="contained" onClick={() => window.location.href = '/synergia/'}>
             Finalizar
           </Button>
         </DialogActions>

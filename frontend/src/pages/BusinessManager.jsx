@@ -43,7 +43,7 @@ export default function BusinessManager() {
 
   const handleCardClick = (id) => {
     window.dispatchEvent(new Event('dashboard-nav'));
-    window.location.href = `/admin/businesses/${id}`;
+    window.location.href = `/synergia/businesses/${id}`;
   };
 
   return (

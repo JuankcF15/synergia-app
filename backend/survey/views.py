@@ -119,7 +119,7 @@ class GenerateAccessCodeView(APIView):
             message,
             None,  # Usa DEFAULT_FROM_EMAIL
             recipient_list,
-            fail_silently=False,
+            fail_silently=True, #editar a false cuando se configure un SMTP Para la redireección de correos" 
         )
 
         serializer = AccessCodeSerializer(code)
